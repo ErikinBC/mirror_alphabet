@@ -23,6 +23,27 @@ def alpha_trans(txt, xmap):
     trans = str.maketrans(s1+s2, s2+s1)
     return txt.str.translate(trans)
 
+
+# Function that takes a word list, cipher, and returns word pairings with word types
+# corpus: some vector of strings
+# cipher: numpy kx2 cipher array
+# PoS: parts of speech lookup
+def annot_vocab_cipher(corpus, cipher, PoS):
+    assert isinstance(cipher, np.ndarray)
+    if not isinstance(corpus,pd.Series):
+        corpus = pd.Series(corpus.copy())
+    tcorpus = alpha_trans(corpus, cipher)
+    idx = corpus.isin(tcorpus)
+    corpus, tcorpus = corpus[idx], tcorpus[idx]
+    df = pd.DataFrame({'word':corpus,'mirror':tcorpus})
+    df = df.merge(PoS,'left','word').sort_values('pos').reset_index(None, True)
+    df = df.merge(PoS,'left',left_on='mirror',right_on='word')#.drop(columns=['word_y','desc_y'])
+    cn_ord = ['word_x','word_y','pos_x','pos_y','tag_x','tag_y','desc_x']
+    df = df[cn_ord]
+    return df
+
+
+
 def makeifnot(path):
     if not os.path.exists(path):
         print('Path does not exist: %s' % path)
