@@ -6,6 +6,11 @@ import os
 import numpy as np
 import pandas as pd
 
+
+def jaccard(lst1, lst2):
+    return len(np.intersect1d(lst1, lst2)) / len(np.union1d(lst1, lst2))
+
+
 def rand_mapping(seed, arr, n):
     np.random.seed(seed)
     return np.random.choice(arr, n, False).reshape([int(n/2),2])
@@ -54,10 +59,12 @@ def npair_max(lst):
     return np.prod(np.arange(1,len(lst),2))
 
 # Function to get a determistic map of an even-numbered alphabet pairing
-# idx: 
+# idx: an integer less than the max number of combinations
+# lst: an even numbered list of unique elements which will be mapped
 def get_cipher(idx,lst):
     assert len(lst) % 2 == 0
     assert idx + 1 <= npair_max(lst)
+    assert not pd.Series(lst).duplicated().any()
     lst = lst.copy()
     npair = int(len(lst) / 2)
     holder = np.repeat('1',len(lst)).reshape([npair, 2])
