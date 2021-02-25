@@ -1,28 +1,22 @@
 # Import modules
+import os
 import numpy as np
 import pandas as pd
 from scipy import stats
-import string
-import os
-import shutil
-import plotnine
 from plotnine import *
-from timeit import timeit
 import string
 from time import time
 
-from math import factorial
-import itertools
+from plydata.cat_tools import *
 
 import importlib
 import funs
 importlib.reload(funs)
 from funs import makeifnot
 from funs import rand_mapping, alpha_trans, get_cipher, npair_max, annot_vocab_cipher
-from funs import jaccard
+from funs import jaccard, linreg
 
 import nltk
-from nltk.tokenize import word_tokenize
 import contextlib, io
 
 import spacy
@@ -194,9 +188,53 @@ else:
     dat_12 = dat_12.sort_values('n',ascending=False).reset_index(None,True)
     dat_12.to_csv(path12,index=False)
 
+# "best" word list from each
+metric_idx = dat_12.melt('idx',None,'metric').sort_values(['metric','value'],ascending=False)
+metric_idx = metric_idx.groupby('metric').head(1).reset_index(None,True)
+
+for i, r in metric_idx.iterrows():
+    idx, metric = r['idx'], r['metric']
+    vocab_i = annot_vocab_cipher(corpus=words12, cipher=get_cipher(idx, alphabet12), PoS=pos_spacy)
+    print('Metric: %s has %i words' % (metric, len(vocab_i)))
+
+# The weighted words aren't helpful
+dat_12.drop(columns=['w','sw','ln'], inplace=True)
 
 ################################
 # --- (6) EVALUATE CIPHERS --- #
+
+di_l2n = dict(zip(letters,range(len(letters))))
+
+# Find statistical enrichments for different letters combinations
+holder = []
+for i in range(mx_perm12):
+    xmap_i = get_cipher(i, alphabet12)
+    holder.append(list(pd.DataFrame(xmap_i).apply(lambda x: ':'.join(x),1)))
+dat_enrich = pd.DataFrame(holder).assign(n=dat_12.n.values).melt('n',None,'tmp')
+dat_enrich = dat_enrich = pd.concat([dat_enrich.drop(columns=['value','tmp']),
+           dat_enrich.value.str.split('\\:',1,True).rename(columns={0:'l1',1:'l2'})],1)
+dat_enrich = dat_enrich.assign(n1=lambda x: x.l1.map(di_l2n), n2=lambda x: x.l2.map(di_l2n))
+dat_enrich = dat_enrich.assign(l1a=lambda x: np.where(x.n1 < x.n2, x.l1, x.l2),
+                  l2a=lambda x: np.where(x.n1 < x.n2, x.l2, x.l1)).drop(columns=['n1','n2','l1','l2'])
+assert dat_enrich[['l1a','l2a']].apply(lambda x: x.map(di_l2n),0).assign(check=lambda x: x.l1a < x.l2a).check.all()
+dat_enrich = dat_enrich.assign(lpair = lambda x: x.l1a + ':' + x.l2a).drop(columns=['l1a','l2a'])
+
+Xbin = pd.get_dummies(dat_enrich.lpair,drop_first=False)
+mdl_ols = linreg(inference=True)
+mdl_ols.fit(X=Xbin.values,y=dat_enrich.n.values)
+dat_ols = pd.DataFrame({'bhat':mdl_ols.bhat,'se':mdl_ols.se}).assign(z=lambda x: x.bhat/x.se)
+dat_ols.insert(0,'cn',['Intercept'] + list(Xbin.columns))
+dat_ols = dat_ols.assign(is_sig=lambda x: 2*stats.norm.cdf(-np.abs(x.z)) < (0.05/len(x)))
+dat_ols = dat_ols.query('cn!="Intercept"').assign(cn=lambda x: cat_reorder(x.cn, x.bhat))
+
+gg_ols = (ggplot(dat_ols, aes(y='cn',x='bhat',color='is_sig')) +
+          theme_bw() + geom_point() +
+          geom_vline(xintercept=0,linetype='--') +
+          labs(x='Coefficient',y='Cipher pairing') +
+          scale_color_discrete(name='Statistically significant') +
+          theme(legend_position=(0.65,0.25)))
+gg_ols.save(os.path.join(dir_figures,'gg_ols.png'), width=5, height=10)
+
 
 # How rank-correlated are the different measures?
 cn_msr = dat_12.columns.drop('idx')
@@ -215,16 +253,6 @@ gg_rho = (ggplot(dat_rho, aes(x='cn1',y='cn2',fill='rho')) +
          geom_text(aes(label='rho.round(2)'),color='white') +
          ggtitle("Spearman's rho for ranking metrics"))
 gg_rho.save(os.path.join(dir_figures,'gg_rho.png'),width=3, height=3)
-
-
-# "best" word list from each
-metric_idx = dat_12.melt('idx',None,'metric').sort_values(['metric','value'],ascending=False).groupby('metric').head(1)
-metric_idx.reset_index(None,True,inplace=True)
-
-for i, r in metric_idx.iterrows():
-    idx, metric = r['idx'], r['metric']
-    vocab_i = annot_vocab_cipher(corpus=words12, cipher=get_cipher(idx, alphabet12), PoS=pos_spacy)
-    print('Metric: %s has %i words' % (metric, len(vocab_i)))
 
 # What is the jaccard index for the top 20 ciphers?
 k = 20

@@ -6,6 +6,20 @@ import os
 import numpy as np
 import pandas as pd
 
+class linreg():
+    def __init__(self, inference=True):
+        self.inference = inference
+
+    def fit(self, X, y):
+        n, p = X.shape
+        iX = np.c_[np.repeat(1, n), X]
+        self.inv_iXX = np.linalg.pinv(iX.T.dot(iX))
+        self.Xy = iX.T.dot(y)
+        self.bhat = self.inv_iXX.dot(self.Xy)
+        residuals = y - iX.dot(self.bhat)
+        s2 = np.sum(residuals**2)/(n-(p+1))
+        self.se = np.sqrt( s2 * np.diag(self.inv_iXX) )
+
 
 def jaccard(lst1, lst2):
     return len(np.intersect1d(lst1, lst2)) / len(np.union1d(lst1, lst2))
