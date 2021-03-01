@@ -161,6 +161,7 @@ jalphabet12 = ''.join(alphabet12)
 df_merge12 = df_merge[~df_merge.word.str.contains('[^'+jalphabet12+']')]
 words12 = df_merge12.word
 print('There are %i unique words using the top 12 letters' % (len(words12)))
+words12.reset_index().drop(columns='index').to_csv(os.path.join(dir_output,'words_'+jalphabet12+'.csv'),index=False)
 
 mx_perm12 = npair_max(alphabet12)
 di_eval = {0:'idx', 1:'n', 2:'w', 3:'sw', 4:'ln'}
@@ -199,6 +200,8 @@ for i, r in metric_idx.iterrows():
 
 # The weighted words aren't helpful
 dat_12.drop(columns=['w','sw','ln'], inplace=True)
+
+
 
 ################################
 # --- (6) EVALUATE CIPHERS --- #
