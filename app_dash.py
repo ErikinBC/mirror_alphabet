@@ -127,4 +127,5 @@ def update_output(idx, n_clicks, txt):
 
 if __name__ == '__main__':
     app.run_server(host='127.0.0.1', port='8050', debug=True)
+    server = app.server
 

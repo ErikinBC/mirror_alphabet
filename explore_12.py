@@ -1,38 +1,25 @@
 # Import modules
 import os
-import numpy as np
-import pandas as pd
-from scipy import stats
-from plotnine import *
 import string
-from time import time
-
-from plydata.cat_tools import *
-
-import importlib
-import funs
-importlib.reload(funs)
-from funs import makeifnot
-from funs import rand_mapping, alpha_trans, get_cipher, npair_max, annot_vocab_cipher
-from funs import jaccard, linreg
-
 import nltk
-import contextlib, io
-
 import spacy
 nlp_sm = spacy.load("en_core_web_sm")
 
-def capture(fun,arg):
-    f = io.StringIO()
-    with contextlib.redirect_stdout(f):
-        fun(arg)
-    output = f.getvalue()
-    return output
+import numpy as np
+import pandas as pd
+import plotnine as pn
+
+from time import time
+from scipy import stats
+from plydata.cat_tools import *
+from funs_support import makeifnot, jaccard, linreg
+from funs_cipher import rand_mapping, alpha_trans, get_cipher, npair_max, annot_vocab_cipher
 
 letters = [l for l in string.ascii_lowercase]
 
 # There are ~ 8 billion possible alphabet encodings
 print(f"There are {npair_max(letters):,} possible English alphabet encodings")
+
 
 #################################
 # --- (1) DOWNLOAD THE DATA --- #
