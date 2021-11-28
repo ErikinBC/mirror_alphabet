@@ -3,27 +3,22 @@
 # Run this app with `python app.py` and
 # visit http://127.0.0.1:8050/ in your web browser.
 
+# Load modules
 import os
-import pandas as pd
-import numpy as np
 import string
+import pandas as pd
 from datetime import datetime
+from funs_cipher import alpha_trans, get_cipher, annot_vocab_cipher
 
-# from urllib.parse import quote as urlquote
-# from flask import Flask, send_from_directory
-import io
-
+# Load dash modules
 import dash
-from dash import no_update
 import dash_table
-from dash.dependencies import Input, Output, State
-import dash_html_components as html
 import dash_core_components as dcc
-import dash_bootstrap_components as dbc
+import dash_html_components as html
+from dash import no_update
 from dash_extensions import Download
 from dash_extensions.snippets import send_data_frame
-
-from funs import alpha_trans, get_cipher, annot_vocab_cipher#, npair_max, 
+from dash.dependencies import Input, Output, State
 
 
 app = dash.Dash(__name__)
@@ -75,7 +70,7 @@ app.layout = html.Div([
     html.Br(), html.Br(), html.Br(), html.Br(), 
 ])
 
-#df = pd.DataFrame({'a': [1, 2, 3, 4], 'b': [2, 1, 5, 6], 'c': ['x', 'x', 'y', 'y']})
+
 @app.callback(
     Output("download", "data"),
     [Input("btn", "n_clicks")]

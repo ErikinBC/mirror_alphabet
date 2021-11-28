@@ -4,7 +4,6 @@ import os
 import io
 import contextlib
 import numpy as np
-import pandas as pd
 
 # Capture print outupt
 def capture(fun,arg):

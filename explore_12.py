@@ -1,7 +1,7 @@
 # Import modules
 import os
-import string
 import nltk
+import string
 import spacy
 nlp_sm = spacy.load("en_core_web_sm")
 
@@ -12,13 +12,17 @@ import plotnine as pn
 from time import time
 from scipy import stats
 from plydata.cat_tools import *
-from funs_support import makeifnot, jaccard, linreg
-from funs_cipher import rand_mapping, alpha_trans, get_cipher, npair_max, annot_vocab_cipher
+from funs_support import makeifnot, jaccard, linreg, capture
+from funs_cipher import rand_mapping, alpha_trans, get_cipher, n_encipher, annot_vocab_cipher
 
 letters = [l for l in string.ascii_lowercase]
 
-# There are ~ 8 billion possible alphabet encodings
-print(f"There are {npair_max(letters):,} possible English alphabet encodings")
+n_letter_seq = np.arange(2,26+1,2).astype(int)
+holder = []
+for n_letter in n_letter_seq:
+    holder.append(n_encipher(n_letter))
+df_ncomb = pd.concat(holder).reset_index(drop=True)
+print(df_ncomb)
 
 
 #################################
@@ -60,8 +64,7 @@ df_words = df_words[~df_words.word.isnull()].reset_index(None, True)
 
 # Overlap?
 n_overlap = df_words.word.isin(df_ngram.word).sum()
-print('A total of %i short words overlap (out of %i)' %
-     (n_overlap, df_words.shape[0]))
+print('A total of %i short words overlap (out of %i)' % (n_overlap, df_words.shape[0]))
 
 # Merge datasets in the intersection
 df_merge = df_ngram.merge(df_words,'inner','word')
@@ -82,7 +85,7 @@ else:
             eta = nleft / rate
             print('%0.1f calculations per second. ETA: %i seconds for %i remaining' %
                   (rate, eta, nleft))
-    pos_spacy = pd.concat(holder)
+    pos_spacy = pd.concat(holder).reset_index(drop=True)
     # Get the definitions for the different tags
     dat_tag = pd.DataFrame([capture(nltk.help.upenn_tagset,p).split('\n')[0].split(': ') for p in list(pos_spacy.tag.unique())])
     dat_tag.rename(columns={0:'tag',1:'desc'}, inplace=True)
@@ -101,10 +104,10 @@ dat_n_q.tt = pd.Categorical(dat_n_q.tt,['n','n_sqrt','n_log'])
 di_tt = {'n':'n', 'n_sqrt':'sqrt','n_log':'log'}
 
 # DISTIRUBTION OF WORD FREQUENCIES
-gg_q = (ggplot(dat_n_q, aes(x='qq',y='value')) + geom_path() +
-       theme_bw() + facet_wrap('~tt',scales='free_y') +
-       labs(y='Weight', x='Quantile') +
-       theme(subplots_adjust={'wspace': 0.25}))
+gg_q = (pn.ggplot(dat_n_q, pn.aes(x='qq',y='value')) + pn.geom_path() +
+       pn.theme_bw() + pn.facet_wrap('~tt',scales='free_y') +
+       pn.labs(y='Weight', x='Quantile') +
+       pn.theme(subplots_adjust={'wspace': 0.25}))
 gg_q.save(os.path.join(dir_figures,'gg_q.png'),width=9, height=2.5)
 
 print('The ten most and least common words in the corpus')
@@ -116,6 +119,7 @@ letter_freq.rename(columns={0:'letter','index':'idx'}, inplace=True)
 letter_freq_n = letter_freq.merge(df_merge.rename_axis('idx').n.reset_index()).groupby('letter').n.sum().reset_index()
 letter_freq_n = letter_freq_n.sort_values('n',ascending=False).reset_index(None,True)
 print(letter_freq_n.head())
+', '.join(letter_freq_n.letter.head(12))
 
 
 ################################
@@ -217,12 +221,12 @@ dat_ols.insert(0,'cn',['Intercept'] + list(Xbin.columns))
 dat_ols = dat_ols.assign(is_sig=lambda x: 2*stats.norm.cdf(-np.abs(x.z)) < (0.05/len(x)))
 dat_ols = dat_ols.query('cn!="Intercept"').assign(cn=lambda x: cat_reorder(x.cn, x.bhat))
 
-gg_ols = (ggplot(dat_ols, aes(y='cn',x='bhat',color='is_sig')) +
-          theme_bw() + geom_point() +
-          geom_vline(xintercept=0,linetype='--') +
-          labs(x='Coefficient',y='Cipher pairing') +
-          scale_color_discrete(name='Statistically significant') +
-          theme(legend_position=(0.65,0.25)))
+gg_ols = (pn.ggplot(dat_ols, pn.aes(y='cn',x='bhat',color='is_sig')) +
+          pn.theme_bw() + pn.geom_point() +
+          pn.geom_vline(xintercept=0,linetype='--') +
+          pn.labs(x='Coefficient',y='Cipher pairing') +
+          pn.scale_color_discrete(name='Statistically significant') +
+          pn.theme(legend_position=(0.65,0.25)))
 gg_ols.save(os.path.join(dir_figures,'gg_ols.png'), width=5, height=10)
 
 
@@ -234,14 +238,14 @@ for cn1 in cn_msr:
         holder.append(pd.DataFrame({'cn1':cn1, 'cn2':cn2, 'rho':stats.spearmanr(dat_12[cn1], dat_12[cn2])[0]},index=[0]))
 dat_rho = pd.concat(holder).assign(cn1=lambda x: pd.Categorical(x.cn1, cn_msr),
                                    cn2=lambda x: pd.Categorical(x.cn2, cn_msr))
-gg_rho = (ggplot(dat_rho, aes(x='cn1',y='cn2',fill='rho')) +
-        theme_bw() + geom_tile(color='black') +
-        theme(axis_title=element_blank(),axis_text=element_text(size=12),
-              axis_text_x=element_text(angle=90)) +
-         scale_fill_gradient2(low='blue',high='red',mid='grey',midpoint=0) +
-          guides(fill=False) +
-         geom_text(aes(label='rho.round(2)'),color='white') +
-         ggtitle("Spearman's rho for ranking metrics"))
+gg_rho = (pn.ggplot(dat_rho, pn.aes(x='cn1',y='cn2',fill='rho')) +
+        pn.theme_bw() + pn.geom_tile(color='black') +
+        pn.theme(axis_title=pn.element_blank(),axis_text=pn.element_text(size=12),
+              axis_text_x=pn.element_text(angle=90)) +
+         pn.scale_fill_gradient2(low='blue',high='red',mid='grey',midpoint=0) +
+          pn.guides(fill=False) +
+         pn.geom_text(pn.aes(label='rho.round(2)'),color='white') +
+         pn.ggtitle("Spearman's rho for ranking metrics"))
 gg_rho.save(os.path.join(dir_figures,'gg_rho.png'),width=3, height=3)
 
 # What is the jaccard index for the top 20 ciphers?
@@ -261,13 +265,13 @@ for i in range(0, k):
 res_jac = pd.concat(holder).reset_index(None,True)
 res_jac = res_jac.assign(idx1=lambda x: x.idx1.astype(str),
                          idx2=lambda x: x.idx2.astype(str)).query('idx1 != idx2')
-gg_jac = (ggplot(res_jac, aes(x='idx1', y='idx2', fill='jac')) + theme_bw() +
-          geom_tile(color='black') +
-          labs(y='Cipher #',x='Cipher #') +
-          scale_fill_gradient2(name='Jaccard',low='blue',mid='grey',high='red',
+gg_jac = (pn.ggplot(res_jac, pn.aes(x='idx1', y='idx2', fill='jac')) + pn.theme_bw() +
+          pn.geom_tile(color='black') +
+          pn.labs(y='Cipher #',x='Cipher #') +
+          pn.scale_fill_gradient2(name='Jaccard',low='blue',mid='grey',high='red',
                                midpoint=0.2,breaks=np.arange(0,0.51,0.1),limits=(0,0.4)) +
-          theme(axis_text_x=element_text(angle=90)) +
-          ggtitle('Jaccard index between top 20 ciphers'))
+          pn.theme(axis_text_x=pn.element_text(angle=90)) +
+          pn.ggtitle('Jaccard index between top 20 ciphers'))
 gg_jac.save(os.path.join(dir_figures,'gg_jac.png'),width=4, height=4)
 
 
