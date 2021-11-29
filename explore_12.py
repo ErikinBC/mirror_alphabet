@@ -17,10 +17,10 @@ from funs_cipher import rand_mapping, alpha_trans, get_cipher, n_encipher, annot
 
 letters = [l for l in string.ascii_lowercase]
 
-n_letter_seq = np.arange(2,26+1,2).astype(int)
+n_letters_seq = np.arange(2,26+1,2).astype(int)
 holder = []
-for n_letter in n_letter_seq:
-    holder.append(n_encipher(n_letter))
+for n_letters in n_letters_seq:
+    holder.append(n_encipher(n_letters))
 df_ncomb = pd.concat(holder).reset_index(drop=True)
 print(df_ncomb)
 
@@ -114,12 +114,100 @@ print('The ten most and least common words in the corpus')
 print(pd.concat([df_merge.head(10)[['word','n']].reset_index(None,True),
            df_merge.tail(10)[['word','n']].reset_index(None,True)],1))
 
-letter_freq = df_merge[['word','n']].apply(lambda x: list(x.word),1).reset_index().explode(0)
-letter_freq.rename(columns={0:'letter','index':'idx'}, inplace=True)
-letter_freq_n = letter_freq.merge(df_merge.rename_axis('idx').n.reset_index()).groupby('letter').n.sum().reset_index()
-letter_freq_n = letter_freq_n.sort_values('n',ascending=False).reset_index(None,True)
-print(letter_freq_n.head())
-', '.join(letter_freq_n.letter.head(12))
+letter_freq = df_merge['word'].apply(lambda x: list(x),1)
+letter_freq = letter_freq.reset_index().explode('word')
+letter_freq.rename(columns={'word':'letter','index':'idx'}, inplace=True)
+tmp = df_merge.rename_axis('idx')['n'].reset_index()
+letter_freq_n = letter_freq.merge(tmp).groupby(['letter']).apply(lambda x: pd.Series({'weight':x['n'].sum(), 'raw':len(x)})).reset_index()
+letter_freq_n = letter_freq_n.sort_values('weight',ascending=False).reset_index(drop=True)
+print(', '.join(letter_freq_n['letter'].head(12)))
+
+
+###########################
+# --- (4) MODEL CLASS --- #
+
+# class 
+from scipy.special import comb
+
+# self=enciphered_dict(df_merge, 'word')
+
+
+"""
+df_english:         A DataFrame with a column of words (and other annotations)
+cn_word:            Column name in df_english with the English words
+letters:            A string of letters (e.g. "abqz")
+n_letters:          If letters is None, how many letters to pick from
+idx_letters:        If letters is None, which combination index to pick from
+"""
+class enciphered_dict():
+    # df_english=df_merge.copy();cn_word='word'
+    def __init__(self, df_english, cn_word):
+        assert isinstance(df_english, pd.DataFrame), 'df_english needs to be a DataFrame'
+        self.df_english = df_english.rename(columns={cn_word:'word'}).drop_duplicates()
+        assert not self.df_english['word'].duplicated().any(), 'Duplicate words found'
+        self.df_english['word'] = self.df_english['word'].str.lower()
+        self.latin = string.ascii_lowercase
+
+    def set_letters(self, letters=None, n_letters=None, idx_letters=None):
+        # letters='aZbd';n_letters=None;idx_letters=None
+        # letters=None;n_letters=4;idx_letters=10000
+        if letters is not None:
+            assert isinstance(letters, str), 'Letters needs to be a string'
+            self.letters = pd.Series([letter.lower() for letter in letters])
+            self.letters = self.letters.drop_duplicates()
+            self.n_letters = self.letters.shape[0]
+            self.k = int(self.n_letters/2)
+            self.letters = np.array(self.letters).reshape([self.k, 2])
+            assert self.n_letters % 2 == 0, 'n_letters must be an even number'
+            assert self.n_letters <= 26, 'n_letters must be less than or equal to 26'            
+        else:
+            has_n = n_letters is not None
+            has_idx = idx_letters is not None
+            assert has_n and has_idx, 'If letters is None, n_letters and idx_letters must be provided'
+            self.n_letters = n_letters
+            self.k = int(self.n_letters/2)
+            self.letters = self.get_lipogram(idx_letters)
+
+    # For a 
+    def get_cipher_mat(self, idx):
+        n_comb = int(comb(26, self.n_letters))
+        assert idx <= n_comb, 'idx must be less than maximum number of combinations: %i' % n_comb
+        letters_idx = self.get_comb_idx(idx, 26, self.n_letters)
+        letters_lipo = [string.ascii_lowercase[lidx-1] for lidx in letters_idx]
+        # Return a k/2 by 2
+        res = np.array(letters_lipo).reshape([self.k, 2])
+        return res
+
+    def gen_lipo_idx(self, idx):
+        n_comb = n_encipher(self.n_letters)['n_lipogram'].values[0]
+        assert idx <= n_comb, ''
+        j = 0
+        lst = self.letters.flatten()
+        for i in list(range(self.n_letters-1,0,-2)):
+            l1 = lst[0]
+            q, r = divmod(idx, i)
+            r += 1
+            l2 = lst[r]
+            #print('q: %i, r: %i, l1: %s, l2: %s' % (q, r, l1, l2))
+            lst.remove(l1)
+            lst.remove(l2)
+            holder[j] = [l1, l2]
+            j += 1
+            idx = q
+
+    @staticmethod
+    def get_comb_idx(idx, n, k):
+        # Function which return a list of indices from n choose k permutation
+        c, r, j = [], idx, 0
+        for s in range(1,k+1):
+            cs = j+1
+            while r-comb(n-cs,k-s)>0:
+                r -= comb(n-cs,k-s)
+                cs += 1
+            c.append(cs)
+            j = cs
+        return c
+
 
 
 ################################

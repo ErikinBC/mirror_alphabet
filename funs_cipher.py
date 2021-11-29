@@ -10,15 +10,13 @@ def n_encipher(n_letters):
     n1 = int(np.prod(np.arange(1,n_letters,2)))
     n2 = int(comb(26, n_letters))
     n_tot = n1 * n2
-    res = pd.DataFrame({'n_letter':n_letters,'n_encipher':n1, 'n_comb':n2, 'n_lipogram':n_tot},index=[0])
+    res = pd.DataFrame({'n_letter':n_letters,'n_encipher':n1, 'n_lipogram':n2, 'n_total':n_tot},index=[0])
     return res
 
 # Generate a random mapping of.....
 def rand_mapping(seed, arr, n):
     np.random.seed(seed)
     return np.random.choice(arr, n, False).reshape([int(n/2),2])
-
-
 
 
 """
