@@ -1,3 +1,4 @@
+
 # Import modules
 import os
 import nltk
@@ -13,14 +14,14 @@ from time import time
 from scipy import stats
 from plydata.cat_tools import *
 from funs_support import makeifnot, jaccard, linreg, capture
-from funs_cipher import rand_mapping, alpha_trans, get_cipher, n_encipher, annot_vocab_cipher
+from funs_cipher import enciphered_dict
 
 letters = [l for l in string.ascii_lowercase]
 
 n_letters_seq = np.arange(2,26+1,2).astype(int)
 holder = []
 for n_letters in n_letters_seq:
-    holder.append(n_encipher(n_letters))
+    holder.append(enciphered_dict.n_encipher(0,n_letters))
 df_ncomb = pd.concat(holder).reset_index(drop=True)
 print(df_ncomb)
 
@@ -56,42 +57,30 @@ else:
 
 # (1) Load the Ngrams
 df_ngram = pd.read_csv(path_ngram,sep='\t',header=None).rename(columns={0:'word',1:'n'})
-df_ngram = df_ngram[~df_ngram.word.isnull()].reset_index(None, True)
+df_ngram = df_ngram[~df_ngram['word'].isnull()].reset_index(drop=True)
 
 # (2) Load the short word set
 df_words = pd.read_csv(path_words,sep='\n',header=None).rename(columns={0:'word'})
-df_words = df_words[~df_words.word.isnull()].reset_index(None, True)
+df_words = df_words[~df_words['word'].isnull()].reset_index(drop=True)
 
 # Overlap?
-n_overlap = df_words.word.isin(df_ngram.word).sum()
+n_overlap = df_words.word.isin(df_ngram['word']).sum()
 print('A total of %i short words overlap (out of %i)' % (n_overlap, df_words.shape[0]))
 
 # Merge datasets in the intersection
 df_merge = df_ngram.merge(df_words,'inner','word')
-df_merge = df_merge.assign(n_sqrt=lambda x: np.sqrt(x.n), n_log=lambda x: np.log(x.n))
-# Get the parts of speeach
-path_spacy = os.path.join(dir_output, 'pos_spacy.csv')
-if os.path.exists(path_spacy):
-    pos_spacy = pd.read_csv(path_spacy)
-else:
-    stime, ncheck = time(), 1000
-    holder = []
-    for i, txt in enumerate(df_merge.word.to_list()):
-        tmp = [pd.DataFrame({'word':txt,'pos':tok.pos_,'tag':tok.tag_},index=[i]) for tok in nlp_sm(txt)][0]
-        holder.append(tmp)
-        if (i + 1) % ncheck == 0:
-            nleft, nrun, dtime = len(df_merge) - (i+1), i + 1, time() - stime
-            rate = nrun / dtime
-            eta = nleft / rate
-            print('%0.1f calculations per second. ETA: %i seconds for %i remaining' %
-                  (rate, eta, nleft))
-    pos_spacy = pd.concat(holder).reset_index(drop=True)
-    # Get the definitions for the different tags
-    dat_tag = pd.DataFrame([capture(nltk.help.upenn_tagset,p).split('\n')[0].split(': ') for p in list(pos_spacy.tag.unique())])
-    dat_tag.rename(columns={0:'tag',1:'desc'}, inplace=True)
-    dat_tag = dat_tag.assign(tag = lambda x: np.where(x.tag.str.len()>5,'XX',x.tag))
-    pos_spacy = pos_spacy.merge(dat_tag,'left','tag')
-    pos_spacy.to_csv(path_spacy,index=False)
+df_merge = df_merge.assign(n_sqrt=lambda x: np.sqrt(x['n']), n_log=lambda x: np.log(x['n']))
+
+# Add on the parts of speech
+pos_lst = [z[1] for z in nltk.pos_tag(df_merge['word'].to_list())]
+df_merge.insert(1,'pos',pos_lst)
+# Get PoS defintions
+pos_def = pd.Series([capture(nltk.help.upenn_tagset,p) for p in df_merge['pos'].unique()])
+pos_def = pos_def.str.split('\\:\\s|\\n',expand=True,n=3).iloc[:,:2]
+pos_def.rename(columns={0:'pos',1:'def'},inplace=True)
+df_merge = df_merge.merge(pos_def, 'left', 'pos')
+
+
 
 ##################################
 # --- (3) SUMMARY STATISTICS --- #
@@ -120,93 +109,40 @@ letter_freq.rename(columns={'word':'letter','index':'idx'}, inplace=True)
 tmp = df_merge.rename_axis('idx')['n'].reset_index()
 letter_freq_n = letter_freq.merge(tmp).groupby(['letter']).apply(lambda x: pd.Series({'weight':x['n'].sum(), 'raw':len(x)})).reset_index()
 letter_freq_n = letter_freq_n.sort_values('weight',ascending=False).reset_index(drop=True)
-print(', '.join(letter_freq_n['letter'].head(12)))
-
+top12_letters = letter_freq_n['letter'].head(12)
+print(', '.join(top12_letters))
 
 ###########################
 # --- (4) MODEL CLASS --- #
 
-# class 
-from scipy.special import comb
+# set the letters/cipher pairing manually
+self=enciphered_dict(df_merge, 'word')
+self.set_letters(letters=''.join(top12_letters))
+self.set_encipher(idx_pairing=1)
+self.get_corpus()
+self.df_encipher.loc[1]
 
-# self=enciphered_dict(df_merge, 'word')
+print(self.letters)
+self.set_encipher(pairing='a:b,c:d')
+print(self.mat_pairing)
 
 
-"""
-df_english:         A DataFrame with a column of words (and other annotations)
-cn_word:            Column name in df_english with the English words
-letters:            A string of letters (e.g. "abqz")
-n_letters:          If letters is None, how many letters to pick from
-idx_letters:        If letters is None, which combination index to pick from
-"""
-class enciphered_dict():
-    # df_english=df_merge.copy();cn_word='word'
-    def __init__(self, df_english, cn_word):
-        assert isinstance(df_english, pd.DataFrame), 'df_english needs to be a DataFrame'
-        self.df_english = df_english.rename(columns={cn_word:'word'}).drop_duplicates()
-        assert not self.df_english['word'].duplicated().any(), 'Duplicate words found'
-        self.df_english['word'] = self.df_english['word'].str.lower()
-        self.latin = string.ascii_lowercase
+# Set by index
+self=enciphered_dict(df_merge, 'word')
+self.set_letters(n_letters=26, idx_letters=1)
+print(self.letters)
+self.set_encipher(idx_pairing=1)
+print(self.mat_pairing)
+self.get_corpus()
+self.df_encipher
 
-    def set_letters(self, letters=None, n_letters=None, idx_letters=None):
-        # letters='aZbd';n_letters=None;idx_letters=None
-        # letters=None;n_letters=4;idx_letters=10000
-        if letters is not None:
-            assert isinstance(letters, str), 'Letters needs to be a string'
-            self.letters = pd.Series([letter.lower() for letter in letters])
-            self.letters = self.letters.drop_duplicates()
-            self.n_letters = self.letters.shape[0]
-            self.k = int(self.n_letters/2)
-            self.letters = np.array(self.letters).reshape([self.k, 2])
-            assert self.n_letters % 2 == 0, 'n_letters must be an even number'
-            assert self.n_letters <= 26, 'n_letters must be less than or equal to 26'            
-        else:
-            has_n = n_letters is not None
-            has_idx = idx_letters is not None
-            assert has_n and has_idx, 'If letters is None, n_letters and idx_letters must be provided'
-            self.n_letters = n_letters
-            self.k = int(self.n_letters/2)
-            self.letters = self.get_lipogram(idx_letters)
 
-    # For a 
-    def get_cipher_mat(self, idx):
-        n_comb = int(comb(26, self.n_letters))
-        assert idx <= n_comb, 'idx must be less than maximum number of combinations: %i' % n_comb
-        letters_idx = self.get_comb_idx(idx, 26, self.n_letters)
-        letters_lipo = [string.ascii_lowercase[lidx-1] for lidx in letters_idx]
-        # Return a k/2 by 2
-        res = np.array(letters_lipo).reshape([self.k, 2])
-        return res
+self=enciphered_dict(df_merge, 'word')
+self.set_letters(n_letters=26, idx_letters=1)
+self.set_encipher(idx_pairing=7000000000000)
+print(self.mat_pairing)
+self.alpha_trans('abcd')
 
-    def gen_lipo_idx(self, idx):
-        n_comb = n_encipher(self.n_letters)['n_lipogram'].values[0]
-        assert idx <= n_comb, ''
-        j = 0
-        lst = self.letters.flatten()
-        for i in list(range(self.n_letters-1,0,-2)):
-            l1 = lst[0]
-            q, r = divmod(idx, i)
-            r += 1
-            l2 = lst[r]
-            #print('q: %i, r: %i, l1: %s, l2: %s' % (q, r, l1, l2))
-            lst.remove(l1)
-            lst.remove(l2)
-            holder[j] = [l1, l2]
-            j += 1
-            idx = q
-
-    @staticmethod
-    def get_comb_idx(idx, n, k):
-        # Function which return a list of indices from n choose k permutation
-        c, r, j = [], idx, 0
-        for s in range(1,k+1):
-            cs = j+1
-            while r-comb(n-cs,k-s)>0:
-                r -= comb(n-cs,k-s)
-                cs += 1
-            c.append(cs)
-            j = cs
-        return c
 
 
 
