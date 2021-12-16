@@ -13,7 +13,7 @@ letters:            A string of letters (e.g. "abqz")
 n_letters:          If letters is None, how many letters to pick from
 idx_letters:        If letters is None, which combination index to pick from
 """
-class enciphered_dict():
+class encipherer():
     # df_english=df_merge.copy();cn_word='word'
     def __init__(self, df_english, cn_word):
         assert isinstance(df_english, pd.DataFrame), 'df_english needs to be a DataFrame'
@@ -39,12 +39,12 @@ class enciphered_dict():
             self.letters = self.letters.drop_duplicates()
             self.letters = self.letters.sort_values().reset_index(drop=True)
             self.n_letters = self.letters.shape[0]
-            self.idx_max = {k:v[0] for k,v, in self.n_encipher().to_dict().items()}
+            self.idx_max = {k:v[0] for k,v, in self.n_encipher(self.n_letters).to_dict().items()}
         else:
             has_n = n_letters is not None
             has_idx = idx_letters is not None
             assert has_n and has_idx, 'If letters is None, n_letters and idx_letters must be provided'
-            self.idx_max = {k:v[0] for k,v, in self.n_encipher().to_dict().items()}
+            self.idx_max = {k:v[0] for k,v, in self.n_encipher(n_letters).to_dict().items()}
             assert idx_letters <= self.idx_max['n_lipogram'], 'idx_letters must be ≤ %i' % self.idx_max['n_lipogram']
             assert idx_letters > 0, 'idx_letters must be > 0'
             self.n_letters = n_letters
@@ -85,6 +85,9 @@ class enciphered_dict():
         s1 = ''.join(self.mat_pairing[:,0])
         s2 = ''.join(self.mat_pairing[:,1])
         self.trans = str.maketrans(s1+s2, s2+s1)
+        self.str_pairing = pd.DataFrame(self.mat_pairing)
+        self.str_pairing = ','.join(self.str_pairing.apply(lambda x: x[0]+':'+x[1],1))
+
 
     """
     Find enciphered corpus
@@ -102,6 +105,36 @@ class enciphered_dict():
         self.df_encipher.reset_index(drop=True,inplace=True)
         # Add on any other columns from the original dataframe
         self.df_encipher = self.df_encipher.merge(self.df_english)
+
+    """
+    Iterate through all possible cipher combinations
+
+    cn_weight:          A column from df_english that has a numerical score
+    set_best:           Should the highest scoring index be set for idx_pairing?
+    """
+    def score_ciphers(self, cn_weight, set_best=True):
+        # self=enc;cn_weight='n_log';set_best=True
+        cn_dtype = self.df_english.dtypes[cn_weight]
+        assert (cn_dtype == float) | (cn_dtype == int), 'cn_weight needs to be a float/int not %s' % cn_dtype
+        n_encipher = self.idx_max['n_encipher']
+        holder = np.zeros([n_encipher,2])
+        for i in range(1, n_encipher+1):
+            if (i + 1) % 25 == 0:
+                print(i+1)
+            self.set_encipher(idx_pairing=i)
+            self.get_corpus()
+            n_i = self.df_encipher.shape[0]
+            w_i = self.df_encipher[cn_weight].sum()
+            holder[i-1] = [n_i, w_i]
+        # Get the rank
+        self.df_score = pd.DataFrame(holder,columns=['n_word','weight'])
+        self.df_score['n_word'] = self.df_score['n_word'].astype(int)
+        self.df_score = self.df_score.rename_axis('idx').reset_index()
+        self.df_score['idx'] += 1
+        self.df_score = self.df_score.sort_values('weight',ascending=False).reset_index(drop=True)
+        if set_best:
+            self.set_encipher(idx_pairing=self.df_score['idx'][0])
+            self.get_corpus()
 
     """
     Deterministically returns encipher
@@ -152,9 +185,8 @@ class enciphered_dict():
     """
     Function to calculate total number lipogrammatic and enciphering combinations
     """
-    def n_encipher(self, n_letters=None):
-        if n_letters is None:
-            n_letters = self.n_letters
+    @staticmethod
+    def n_encipher(n_letters):
         assert n_letters % 2 == 0, 'n_letters is not even'
         n1 = int(np.prod(np.arange(1,n_letters,2)))
         n2 = int(comb(26, n_letters))

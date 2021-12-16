@@ -4,7 +4,7 @@ import os
 import nltk
 import string
 import spacy
-nlp_sm = spacy.load("en_core_web_sm")
+nlp_sm = spacy.load('en_core_web_sm')
 
 import numpy as np
 import pandas as pd
@@ -14,14 +14,14 @@ from time import time
 from scipy import stats
 from plydata.cat_tools import *
 from funs_support import makeifnot, jaccard, linreg, capture
-from funs_cipher import enciphered_dict
+from funs_cipher import encipherer
 
 letters = [l for l in string.ascii_lowercase]
 
 n_letters_seq = np.arange(2,26+1,2).astype(int)
 holder = []
 for n_letters in n_letters_seq:
-    holder.append(enciphered_dict.n_encipher(0,n_letters))
+    holder.append(encipherer.n_encipher(n_letters))
 df_ncomb = pd.concat(holder).reset_index(drop=True)
 print(df_ncomb)
 
@@ -81,7 +81,6 @@ pos_def.rename(columns={0:'pos',1:'def'},inplace=True)
 df_merge = df_merge.merge(pos_def, 'left', 'pos')
 
 
-
 ##################################
 # --- (3) SUMMARY STATISTICS --- #
 
@@ -112,190 +111,119 @@ letter_freq_n = letter_freq_n.sort_values('weight',ascending=False).reset_index(
 top12_letters = letter_freq_n['letter'].head(12)
 print(', '.join(top12_letters))
 
-###########################
-# --- (4) MODEL CLASS --- #
+##############################
+# --- (4) CIPHER QUALITY --- #
 
-# set the letters/cipher pairing manually
-self=enciphered_dict(df_merge, 'word')
-self.set_letters(letters=''.join(top12_letters))
-self.set_encipher(idx_pairing=1)
-self.get_corpus()
-self.df_encipher.loc[1]
+# Do the sanity checks
+enc = encipherer(df_merge, 'word')
+n_lipogram = enc.n_encipher(n_letters=4)['n_lipogram'][0]
 
-print(self.letters)
-self.set_encipher(pairing='a:b,c:d')
-print(self.mat_pairing)
-
-
-# Set by index
-self=enciphered_dict(df_merge, 'word')
-self.set_letters(n_letters=26, idx_letters=1)
-print(self.letters)
-self.set_encipher(idx_pairing=1)
-print(self.mat_pairing)
-self.get_corpus()
-self.df_encipher
-
-
-self=enciphered_dict(df_merge, 'word')
-self.set_letters(n_letters=26, idx_letters=1)
-self.set_encipher(idx_pairing=7000000000000)
-print(self.mat_pairing)
-self.alpha_trans('abcd')
-
-
-
-
-################################
-# --- (4) TEST 1:1 MAPPING --- #
-
-# Example of random mapping
-num_letters = np.arange(1,27)
-di_num2let = dict(zip(num_letters, letters))
-nletters = 26
-Xmap = rand_mapping(1,letters, nletters)
-di_map = dict(zip(Xmap[:,0], Xmap[:,1]))
-rwords = df_merge.word.sample(3,random_state=1)
-print(pd.DataFrame({'words':rwords, 'mapped':alpha_trans(rwords, Xmap).values}))
-print('Mapping: %s' % (','.join(pd.DataFrame(Xmap).apply(lambda x: x.str.cat(sep=':'),1).to_list())))
-
-# Show that our letter pairings are unique
-for j in range(2, 13, 2):
-    alphabet = letters[0:j]
-    jalphabet = ''.join(alphabet)
-    mx_perm = npair_max(alphabet)
-    print('The first %i letters has %i mappings' % (j, mx_perm))
-    malphabet = pd.Series(np.array([alpha_trans([jalphabet],get_cipher(i, alphabet)) for i in range(mx_perm)]).flat)
-    assert not malphabet.duplicated().any()
-
-##############################################
-# --- (5) RUN ALL CIPHERS FOR 12 LETTERS --- #
-
-alphabet12 = letter_freq_n.letter[0:12].to_list()
-jalphabet12 = ''.join(alphabet12)
-df_merge12 = df_merge[~df_merge.word.str.contains('[^'+jalphabet12+']')]
-words12 = df_merge12.word
-print('There are %i unique words using the top 12 letters' % (len(words12)))
-words12.reset_index().drop(columns='index').to_csv(os.path.join(dir_output,'words_'+jalphabet12+'.csv'),index=False)
-
-mx_perm12 = npair_max(alphabet12)
-di_eval = {0:'idx', 1:'n', 2:'w', 3:'sw', 4:'ln'}
-
-path12 = os.path.join(dir_output,'dat_12.csv')
-if os.path.exists(path12):
-    dat_12 = pd.read_csv(path12)
-else:
-    holder = [] # np.zeros(mx_perm12,dtype=int)
-    stime, ncheck = time(), 1000
-    for i in range(mx_perm12):
-        xmap_i = get_cipher(i, alphabet12)
-        words_i = words12[alpha_trans(pd.Series(words12), xmap_i).isin(words12)]
-        df_i = df_merge12.query('word.isin(@words_i)')
-        df_i = pd.DataFrame(np.append([i, len(df_i)],df_i.mean().values)).T.rename(columns=di_eval)
-        holder.append(df_i)
-        if (i + 1) % ncheck == 0:
-            nleft, nrun, dtime = mx_perm12 - (i+1), i + 1, time() - stime
-            rate = nrun / dtime
-            eta = nleft / rate
-            print('%0.1f calculations per second. ETA: %i seconds for %i remaining' %
-                  (rate, eta, nleft))
-    dat_12 = pd.concat(holder)
-    dat_12[['idx','n']] = dat_12[['idx','n']].astype(int)
-    dat_12 = dat_12.sort_values('n',ascending=False).reset_index(None,True)
-    dat_12.to_csv(path12,index=False)
-
-# "best" word list from each
-metric_idx = dat_12.melt('idx',None,'metric').sort_values(['metric','value'],ascending=False)
-metric_idx = metric_idx.groupby('metric').head(1).reset_index(None,True)
-
-for i, r in metric_idx.iterrows():
-    idx, metric = r['idx'], r['metric']
-    vocab_i = annot_vocab_cipher(corpus=words12, cipher=get_cipher(idx, alphabet12), PoS=pos_spacy)
-    print('Metric: %s has %i words' % (metric, len(vocab_i)))
-
-# The weighted words aren't helpful
-dat_12.drop(columns=['w','sw','ln'], inplace=True)
-
-
-
-################################
-# --- (6) EVALUATE CIPHERS --- #
-
-di_l2n = dict(zip(letters,range(len(letters))))
-
-# Find statistical enrichments for different letters combinations
+# (i) Enumerate through all possible letter pairings
 holder = []
-for i in range(mx_perm12):
-    xmap_i = get_cipher(i, alphabet12)
-    holder.append(list(pd.DataFrame(xmap_i).apply(lambda x: ':'.join(x),1)))
-dat_enrich = pd.DataFrame(holder).assign(n=dat_12.n.values).melt('n',None,'tmp')
-dat_enrich = dat_enrich = pd.concat([dat_enrich.drop(columns=['value','tmp']),
-           dat_enrich.value.str.split('\\:',1,True).rename(columns={0:'l1',1:'l2'})],1)
-dat_enrich = dat_enrich.assign(n1=lambda x: x.l1.map(di_l2n), n2=lambda x: x.l2.map(di_l2n))
-dat_enrich = dat_enrich.assign(l1a=lambda x: np.where(x.n1 < x.n2, x.l1, x.l2),
-                  l2a=lambda x: np.where(x.n1 < x.n2, x.l2, x.l1)).drop(columns=['n1','n2','l1','l2'])
-assert dat_enrich[['l1a','l2a']].apply(lambda x: x.map(di_l2n),0).assign(check=lambda x: x.l1a < x.l2a).check.all()
-dat_enrich = dat_enrich.assign(lpair = lambda x: x.l1a + ':' + x.l2a).drop(columns=['l1a','l2a'])
+for i in range(1, n_lipogram+1):
+    if (i + 1) % 500 == 0:
+        print(i+1)
+    enc.set_letters(n_letters=4, idx_letters=i)
+    holder.append(enc.letters)
+df_letters = pd.DataFrame(holder)
+df_letters.columns = ['l'+str(i+1) for i in range(4)]
+assert not df_letters.duplicated().any()  # Check that no duplicate values
+df_letters
 
-Xbin = pd.get_dummies(dat_enrich.lpair,drop_first=False)
+# (ii) Enumerate through all possible ciphers
+enc = encipherer(df_merge, 'word')
+enc.set_letters(n_letters=12, idx_letters=1)
+n_encipher = enc.n_encipher(enc.n_letters)['n_encipher'][0]
+
+holder = []
+for i in range(1, n_encipher+1):
+    if (i + 1) % 250 == 0:
+        print(i+1)
+    enc.set_encipher(idx_pairing=i)
+    holder.append(enc.mat_pairing.flatten())
+df_encipher = pd.DataFrame(holder)
+idx_even = df_encipher.columns % 2 == 0
+tmp1 = df_encipher.loc[:,idx_even]
+tmp2 = df_encipher.loc[:,~idx_even]
+tmp2.columns = tmp1.columns
+df_encipher = tmp1 + ':' + tmp2
+df_encipher.columns = ['sub'+str(i+1) for i in range(6)]
+assert not df_encipher.duplicated().any()  # Check that no duplicate values
+df_encipher
+
+# (iii) High-quality mapping
+enc = encipherer(df_merge, 'word')
+enc.set_letters(letters='etoaisnrlchd')
+enc.set_encipher(idx_pairing=1)
+enc.get_corpus()
+print(enc.str_pairing)
+enc.df_encipher[['word','mirror','pos','def']]
+
+# (iv) Score the ciphers
+enc = encipherer(df_merge, 'word')
+enc.set_letters(letters='etoaisnrlchd')
+enc.score_ciphers(cn_weight='n_log',set_best=True)
+
+# (v) Visualize the distribution
+gg_score_w = (pn.ggplot(enc.df_score, pn.aes(x='n_word',y='weight')) + 
+    pn.theme_bw() + pn.geom_point() + 
+    pn.ggtitle('Relationship between word count and score') + 
+    pn.geom_smooth(method='lm',se=False) + 
+    pn.labs(y='Weight', x='# of words'))
+gg_score_w.save(os.path.join(dir_figures,'gg_score_w.png'),width=5,height=3.5)
+
+long_score = enc.df_score.melt('idx',None,'metric')
+di_metric = {'n_word':'# of words', 'weight':'Weight'}
+gg_dist_score = (pn.ggplot(long_score, pn.aes(x='value',fill='metric')) + 
+    pn.theme_bw() + pn.guides(fill=False) + 
+    pn.geom_histogram(bins=25,color='black') + 
+    pn.ggtitle('Distribution of score and word count') + 
+    pn.facet_wrap('~metric',labeller=pn.labeller(metric=di_metric),scales='free_x') + 
+    pn.theme(subplots_adjust={'wspace': 0.20}, axis_title_x=pn.element_blank()) + 
+    pn.labs(y='Frequency'))
+gg_dist_score.save(os.path.join(dir_figures,'gg_dist_score.png'),width=9,height=4)
+
+
+# Add on the cipher pairs to be saved for later
+enc2 = encipherer(df_merge, 'word')
+enc2.set_letters(letters='etoaisnrlchd')
+holder = []
+for i in range(1, n_encipher+1):
+    if (i + 1) % 500 == 0:
+        print(i+1)
+    enc2.set_encipher(idx_pairing=i)
+    holder.append(enc2.str_pairing)
+dat_mapping = pd.Series(holder).str.split(',',5,True)
+dat_mapping = pd.get_dummies(dat_mapping,drop_first=False)
+dat_mapping.columns = pd.Series(dat_mapping.columns.values).str.split('_',1,True)[1]
+dat_mapping = dat_mapping.rename_axis('idx').reset_index()
+dat_mapping = dat_mapping.melt('idx',None,'cn','y')
+dat_mapping = dat_mapping.groupby(['idx','cn'])['y'].sum().reset_index()
+dat_mapping = dat_mapping.pivot('idx','cn','y')
+dat_mapping = pd.concat(objs=[enc.df_score,dat_mapping],axis=1)
+dat_mapping.to_csv(os.path.join(dir_output, 'dat_mapping.csv'),index=False)
+Xbin = dat_mapping.drop(columns=['idx','n_word','weight'])
+cn_drop = Xbin.columns[0]
+print('Dropping column - %s' % cn_drop)
+Xbin = Xbin.drop(columns=cn_drop)
+yval = dat_mapping['weight'].values
+
 mdl_ols = linreg(inference=True)
-mdl_ols.fit(X=Xbin.values,y=dat_enrich.n.values)
-dat_ols = pd.DataFrame({'bhat':mdl_ols.bhat,'se':mdl_ols.se}).assign(z=lambda x: x.bhat/x.se)
+mdl_ols.fit(X=Xbin.values, y=yval)
+dat_ols = pd.DataFrame({'bhat':mdl_ols.bhat,'se':mdl_ols.se}).assign(z=lambda x: x['bhat']/x['se'])
 dat_ols.insert(0,'cn',['Intercept'] + list(Xbin.columns))
-dat_ols = dat_ols.assign(is_sig=lambda x: 2*stats.norm.cdf(-np.abs(x.z)) < (0.05/len(x)))
-dat_ols = dat_ols.query('cn!="Intercept"').assign(cn=lambda x: cat_reorder(x.cn, x.bhat))
+dat_ols = dat_ols.assign(pval=lambda x: 2*stats.norm.cdf(-np.abs(x['z'])))
+dat_ols = dat_ols.assign(bonfer=lambda x: np.minimum(len(x)*x['pval'], 1))
+dat_ols =  dat_ols.assign(is_sig=lambda x: x['bonfer'] < 0.05)
+dat_ols = dat_ols.query('cn!="Intercept"').assign(cn=lambda x: cat_reorder(x['cn'], x['bhat']))
 
-gg_ols = (pn.ggplot(dat_ols, pn.aes(y='cn',x='bhat',color='is_sig')) +
-          pn.theme_bw() + pn.geom_point() +
-          pn.geom_vline(xintercept=0,linetype='--') +
-          pn.labs(x='Coefficient',y='Cipher pairing') +
-          pn.scale_color_discrete(name='Statistically significant') +
-          pn.theme(legend_position=(0.65,0.25)))
-gg_ols.save(os.path.join(dir_figures,'gg_ols.png'), width=5, height=10)
-
-
-# How rank-correlated are the different measures?
-cn_msr = dat_12.columns.drop('idx')
-holder = []
-for cn1 in cn_msr:
-    for cn2 in cn_msr:
-        holder.append(pd.DataFrame({'cn1':cn1, 'cn2':cn2, 'rho':stats.spearmanr(dat_12[cn1], dat_12[cn2])[0]},index=[0]))
-dat_rho = pd.concat(holder).assign(cn1=lambda x: pd.Categorical(x.cn1, cn_msr),
-                                   cn2=lambda x: pd.Categorical(x.cn2, cn_msr))
-gg_rho = (pn.ggplot(dat_rho, pn.aes(x='cn1',y='cn2',fill='rho')) +
-        pn.theme_bw() + pn.geom_tile(color='black') +
-        pn.theme(axis_title=pn.element_blank(),axis_text=pn.element_text(size=12),
-              axis_text_x=pn.element_text(angle=90)) +
-         pn.scale_fill_gradient2(low='blue',high='red',mid='grey',midpoint=0) +
-          pn.guides(fill=False) +
-         pn.geom_text(pn.aes(label='rho.round(2)'),color='white') +
-         pn.ggtitle("Spearman's rho for ranking metrics"))
-gg_rho.save(os.path.join(dir_figures,'gg_rho.png'),width=3, height=3)
-
-# What is the jaccard index for the top 20 ciphers?
-k = 20
-top_idx = dat_12.head(k).idx.values
-holder = []
-for i in range(0, k):
-    idx_i = top_idx[i]
-    xmap_i = get_cipher(idx_i, alphabet12)
-    words_i = words12[alpha_trans(pd.Series(words12), xmap_i).isin(words12)]
-    for j in range(k):
-        idx_j = top_idx[j]
-        xmap_j = get_cipher(idx_j, alphabet12)
-        words_j = words12[alpha_trans(pd.Series(words12), xmap_j).isin(words12)]
-        jac_ij = jaccard(words_i, words_j)
-        holder.append(pd.DataFrame({'idx1':idx_i, 'idx2':idx_j, 'jac':jac_ij},index=[0]))
-res_jac = pd.concat(holder).reset_index(None,True)
-res_jac = res_jac.assign(idx1=lambda x: x.idx1.astype(str),
-                         idx2=lambda x: x.idx2.astype(str)).query('idx1 != idx2')
-gg_jac = (pn.ggplot(res_jac, pn.aes(x='idx1', y='idx2', fill='jac')) + pn.theme_bw() +
-          pn.geom_tile(color='black') +
-          pn.labs(y='Cipher #',x='Cipher #') +
-          pn.scale_fill_gradient2(name='Jaccard',low='blue',mid='grey',high='red',
-                               midpoint=0.2,breaks=np.arange(0,0.51,0.1),limits=(0,0.4)) +
-          pn.theme(axis_text_x=pn.element_text(angle=90)) +
-          pn.ggtitle('Jaccard index between top 20 ciphers'))
-gg_jac.save(os.path.join(dir_figures,'gg_jac.png'),width=4, height=4)
+gtit = 'Linear regression on pair to weight\nDropped column %s' % cn_drop
+gg_ols = (pn.ggplot(dat_ols, pn.aes(x='cn',y='bhat',color='is_sig')) +
+          pn.theme_bw() + pn.geom_point() + pn.ggtitle(gtit) + 
+          pn.geom_hline(yintercept=0,linetype='--') +
+          pn.labs(y='Coefficient',x='Cipher pairing') +
+          pn.scale_color_discrete(name='Statistically significant (Bonferroni correction)') +
+          pn.theme(legend_position=(0.50,0.70),axis_text_x=pn.element_text(angle=90,size=10)))
+gg_ols.save(os.path.join(dir_figures,'gg_ols.png'), width=12, height=5)
 
 
