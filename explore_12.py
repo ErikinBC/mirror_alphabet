@@ -111,8 +111,8 @@ letter_freq_n = letter_freq_n.sort_values('weight',ascending=False).reset_index(
 top12_letters = letter_freq_n['letter'].head(12)
 print(', '.join(top12_letters))
 
-##############################
-# --- (4) CIPHER QUALITY --- #
+#############################
+# --- (4) SANITY CHECKS --- #
 
 # Do the sanity checks
 enc = encipherer(df_merge, 'word')
@@ -121,8 +121,8 @@ n_lipogram = enc.n_encipher(n_letters=4)['n_lipogram'][0]
 # (i) Enumerate through all possible letter pairings
 holder = []
 for i in range(1, n_lipogram+1):
-    if (i + 1) % 500 == 0:
-        print(i+1)
+    if i % 500 == 0:
+        print('Iteration %i of %i' % (i, n_lipogram))
     enc.set_letters(n_letters=4, idx_letters=i)
     holder.append(enc.letters)
 df_letters = pd.DataFrame(holder)
@@ -137,8 +137,8 @@ n_encipher = enc.n_encipher(enc.n_letters)['n_encipher'][0]
 
 holder = []
 for i in range(1, n_encipher+1):
-    if (i + 1) % 250 == 0:
-        print(i+1)
+    if i % 500 == 0:
+        print('Iteration %i of %i' % (i, n_encipher))
     enc.set_encipher(idx_pairing=i)
     holder.append(enc.mat_pairing.flatten())
 df_encipher = pd.DataFrame(holder)
@@ -151,7 +151,28 @@ df_encipher.columns = ['sub'+str(i+1) for i in range(6)]
 assert not df_encipher.duplicated().any()  # Check that no duplicate values
 df_encipher
 
-# (iii) High-quality mapping
+
+# (ii) Enumerate through all possible pairing/ciphers
+enc = encipherer(df_merge, 'word')
+enc.set_letters(n_letters=4, idx_letters=1)
+n_encipher = enc.idx_max['n_encipher']
+n_lipogram = enc.idx_max['n_lipogram']
+n_total = enc.idx_max['n_total']
+holder = pd.Series(np.repeat('',n_total))
+k = 0
+for j in range(1, n_lipogram+1):
+    if j % 500 == 0:
+        print('Iteration %i of %i' % (j, n_lipogram))
+    enc.set_letters(n_letters=4, idx_letters=j)
+    for i in range(1, n_encipher+1):
+        enc.set_encipher(idx_pairing=i)
+        res = pd.Series(enc.str_pairing)
+        holder[k] = res
+        k += 1
+res_all = holder.reset_index(drop=True).apply(lambda x: x[0])
+assert not res_all.duplicated().any()
+
+# (iv) High-quality mapping
 enc = encipherer(df_merge, 'word')
 enc.set_letters(letters='etoaisnrlchd')
 enc.set_encipher(idx_pairing=1)
@@ -159,12 +180,15 @@ enc.get_corpus()
 print(enc.str_pairing)
 enc.df_encipher[['word','mirror','pos','def']]
 
-# (iv) Score the ciphers
+##############################
+# --- (5) CIPHER QUALITY --- #
+
+# (i) Score the ciphers
 enc = encipherer(df_merge, 'word')
 enc.set_letters(letters='etoaisnrlchd')
 enc.score_ciphers(cn_weight='n_log',set_best=True)
 
-# (v) Visualize the distribution
+# (ii) Visualize the distribution
 gg_score_w = (pn.ggplot(enc.df_score, pn.aes(x='n_word',y='weight')) + 
     pn.theme_bw() + pn.geom_point() + 
     pn.ggtitle('Relationship between word count and score') + 
@@ -202,6 +226,7 @@ dat_mapping = dat_mapping.groupby(['idx','cn'])['y'].sum().reset_index()
 dat_mapping = dat_mapping.pivot('idx','cn','y')
 dat_mapping = pd.concat(objs=[enc.df_score,dat_mapping],axis=1)
 dat_mapping.to_csv(os.path.join(dir_output, 'dat_mapping.csv'),index=False)
+dat_mapping = pd.read_csv(os.path.join(dir_output, 'dat_mapping.csv'))
 Xbin = dat_mapping.drop(columns=['idx','n_word','weight'])
 cn_drop = Xbin.columns[0]
 print('Dropping column - %s' % cn_drop)
@@ -226,4 +251,43 @@ gg_ols = (pn.ggplot(dat_ols, pn.aes(x='cn',y='bhat',color='is_sig')) +
           pn.theme(legend_position=(0.50,0.70),axis_text_x=pn.element_text(angle=90,size=10)))
 gg_ols.save(os.path.join(dir_figures,'gg_ols.png'), width=12, height=5)
 
+
+# (iii) Look into the distribution
+pair_range = dat_mapping.drop(columns='idx').melt(['n_word','weight'],None,'pair')
+pair_range = pair_range.query('value==1').drop(columns='value')
+pair_ord = pair_range.groupby('pair')['n_word'].mean().sort_values(ascending=False).index.to_list()
+pair_range['pair'] = pd.Categorical(pair_range['pair'], pair_ord)
+
+gg_range = (pn.ggplot(pair_range, pn.aes(x='pair',y='n_word')) + 
+    pn.theme_bw() + pn.geom_boxplot() + 
+    pn.labs(y='# of words',x='Cipher pairing') + 
+    pn.theme(axis_text_x=pn.element_text(angle=90,size=10)))
+gg_range.save(os.path.join(dir_figures,'gg_range.png'), width=12, height=5)
+
+
+# (iv) Look for hello world
+enc3 = encipherer(df_merge, 'word')
+enc3.set_letters(letters='etoaisnrlhdw')
+n_max = enc3.idx_max['n_encipher']
+holder = np.zeros(n_max, dtype=int)
+for j in range(1,n_max+1):
+    if (j + 1) % 50 == 0:
+        print(j+1)
+    enc3.set_encipher(idx_pairing=j)
+    enc3.get_corpus()
+    n_w = enc3.df_encipher['word'].isin(['hello','world']).sum()
+    holder[j-1] = n_w
+df_hw = pd.DataFrame({'idx':range(1,n_max+1),'n':holder})
+df_hw = df_hw.sort_values('n',ascending=False).reset_index(drop=True)
+holder = []
+for i in df_hw.query('n>0').idx:
+    enc3.set_encipher(idx_pairing=i)
+    enc3.get_corpus()
+    qq = enc3.df_encipher[enc3.df_encipher['word'].isin(['hello','world'])]
+    enc3.df_encipher[['word','mirror']].sort_values('word')
+    holder.append(qq[['word','mirror']])
+    # word = qq['word'].values[0]
+    # mirror = qq['mirror'].values[0]
+    # print('word = %s, mirror = %s, hash: %s' % (word, mirror, enc3.str_pairing))
+zz = pd.concat(holder).drop_duplicates().sort_values('word').reset_index(drop=True)
 
